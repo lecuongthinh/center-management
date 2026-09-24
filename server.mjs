@@ -785,4 +785,8 @@ http.createServer(async (req, res) => {
     if (!f.startsWith(dist) || !fs.existsSync(f)) f = path.join(dist, "index.html");
     res.writeHead(200, { "Content-Type": types[path.extname(f)] || "application/octet-stream" }); fs.createReadStream(f).pipe(res);
   } catch (e) { json(res, { error: String(e.message || e) }, 500); }
-}).listen(5178, "127.0.0.1", () => console.log("Demo: http://127.0.0.1:5178  (chỉ máy này truy cập được)"));
+// Cục bộ: cố định 127.0.0.1:5178 (chỉ máy này truy cập, khớp preview server đang dùng lúc dev). Trên
+// Render (hay host thật khác): PHẢI nghe đúng cổng do host cấp qua biến PORT + mở cho kết nối từ ngoài
+// (0.0.0.0) — cố định 127.0.0.1 sẽ khiến Render không bao giờ kết nối được vào app, deploy coi như hỏng.
+}).listen(process.env.PORT ? Number(process.env.PORT) : 5178, process.env.PORT ? "0.0.0.0" : "127.0.0.1",
+  () => console.log(`Demo: nghe cổng ${process.env.PORT || 5178}${process.env.PORT ? "" : " (chỉ máy này truy cập được)"}`));
