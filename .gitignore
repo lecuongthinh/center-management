@@ -1,0 +1,14 @@
+data/*
+!data/branding.json
+.env
+node_modules/
+dist/
+cleanup-test.mjs
+delta-probe.mjs
+delta-probe2.mjs
+ghl-write-guarded.mjs
+outbox.mjs
+recheck.mjs
+sync.mjs
+tag-check.mjs
+write-test.mjs
