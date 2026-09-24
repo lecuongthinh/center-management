@@ -2,6 +2,7 @@
 // but only into the Điểm danh object, only relating to the known set of test Ghi danh ids (the 18 tagged
 // test_object_hoc_vien students), never anywhere else. Token comes from .env (gitignored), never printed/logged.
 import fs from "fs";
+import { kvGet } from "./db.mjs";
 const ENV_PATH = new URL("./.env", import.meta.url);
 // process.env ghi đè file .env — trên Render (hay host khác) không có file .env, chỉ có biến set qua
 // dashboard nạp vào process.env; ưu tiên process.env thì cục bộ lẫn deploy thật đều đọc đúng.
@@ -30,11 +31,13 @@ const ASSOC_LOP_GIAOVIEN = "6ab40a09c8e7e6b34b1b4d23"; // first=giao_vien, secon
 // Allowlist: the only Ghi danh ids this writer will ever attach a Điểm danh record to (the 18 tagged test
 // students) OR relate/renew (any Ghi danh created later through the app's own "Ghi danh" flow — tracked in
 // the enrollment overlay), and the only Lớp ids it will create/relate Buổi học records for (same test set).
-// Reading the overlay here (not just candy_attendance.json) closes a gap noted earlier: without this, a
+// Reading the overlay here (not just the base snapshot) closes a gap noted earlier: without this, a
 // student enrolled via the app could never have attendance marked or their enrollment renewed afterward.
-const candy = JSON.parse(fs.readFileSync(new URL("./data/candy_attendance.json", import.meta.url), "utf8"));
-const enrollOverlayPath = new URL("./data/candy_enrollment_overlay.json", import.meta.url);
-const enrollOverlay = fs.existsSync(enrollOverlayPath) ? JSON.parse(fs.readFileSync(enrollOverlayPath, "utf8")) : [];
+// Cả 2 nguồn giờ đọc từ Postgres (kv_store, xem db.mjs) — trước đây đọc trực tiếp file JSON cục bộ, độc
+// lập hoàn toàn với state của server.mjs (đã chuyển sang Postgres) và sẽ crash lúc khởi động trên Render
+// (file không tồn tại, bị .gitignore). Đọc CÙNG 1 nguồn với server.mjs thì allowlist cũng luôn khớp thực tế.
+const candy = await kvGet("base_snapshot", { students: [], classes: [], attendance_seed: [] });
+const enrollOverlay = await kvGet("enrollment_overlay", []);
 const allKnownStudents = [...candy.students, ...enrollOverlay];
 const ALLOWED_GHI_DANH = new Set(allKnownStudents.map((s) => s.ghi_danh_id));
 const ALLOWED_LOP = new Map(candy.classes.map((c) => [c.lop, c.lop_id]));
