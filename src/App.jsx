@@ -218,7 +218,7 @@ function Attendance() {
                 const isReal = r.marked?.real && d.status === r.marked.status && d.note === (r.marked.note || "");
                 return (
                   <tr key={r.n} className={isReal ? "real" : ""}>
-                    <td className="strong">{r.name} {isReal && <span className="tag real-tag" title="Đã ghi vào GHL — không phải dữ liệu nháp">THẬT</span>}</td>
+                    <td className="strong">{r.name} {isReal && <span className="tag real-tag" title="Đã lưu, không sửa được nữa">Đã lưu</span>}</td>
                     <td>{r.sessions_total ?? "—"}</td>
                     <td className="statuses">
                       {STATUS_ORDER.map((s) => (
@@ -362,7 +362,7 @@ function EnrollForm({ lop, siSoHienTai, siSoToiDa, onDone, onCancel }) {
         <>
           <div className="row" style={{ flexWrap: "wrap" }}>
             <select value={hocVienId} onChange={(e) => setHocVienId(e.target.value)}>
-              <option value="">— Chọn học viên (trong danh sách thí điểm) —</option>
+              <option value="">— Chọn học viên —</option>
               {options.map((o) => <option key={o.hoc_vien_id} value={o.hoc_vien_id}>{o.name} ({o.lops.map((l) => l.lop).join(", ")})</option>)}
             </select>
           </div>
@@ -384,7 +384,7 @@ function EnrollForm({ lop, siSoHienTai, siSoToiDa, onDone, onCancel }) {
             </label>
           </div>
           <div className="row">
-            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Ghi danh (ghi thật vào GHL)"}</button>
+            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Ghi danh"}</button>
             <button onClick={onCancel} disabled={busy}>Huỷ</button>
           </div>
           {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -430,7 +430,7 @@ function LichHocForm({ lop, currentThu, currentBatDau, currentKetThuc, onDone, o
         </label>
       </div>
       <div className="row">
-        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Lưu (ghi thật vào GHL)"}</button>
+        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
         <button onClick={onCancel} disabled={busy}>Huỷ</button>
       </div>
       {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -462,7 +462,7 @@ function GenerateSessionsForm({ lop, onClose }) {
         </label>
       </div>
       <div className="row">
-        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang tạo trên GHL…" : "Sinh lịch (ghi thật vào GHL)"}</button>
+        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang tạo…" : "Sinh lịch"}</button>
         <button onClick={onClose} disabled={busy}>Đóng</button>
       </div>
       {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -661,7 +661,7 @@ function RenewForm({ ghiDanhId, currentHetHan, currentTongSoBuoi, onDone }) {
         </label>
       </div>
       <div className="row">
-        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Xác nhận gia hạn (ghi thật vào GHL)"}</button>
+        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Xác nhận gia hạn"}</button>
         <button onClick={() => setOpen(false)} disabled={busy}>Huỷ</button>
       </div>
       {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -722,7 +722,7 @@ function TransferForm({ ghiDanhIdCu, hocVienId, studentName, lopCu, onDone, onCa
             </label>
           </div>
           <div className="row">
-            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Xác nhận chuyển lớp (ghi thật vào GHL)"}</button>
+            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Xác nhận chuyển lớp"}</button>
             <button onClick={onCancel} disabled={busy}>Huỷ</button>
           </div>
           {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -767,7 +767,7 @@ function BookMakeUpForm({ ghiDanhId, ngayVang, loaiVang, lopGoc, onDone, onCance
             <input type="date" value={ngayBu} onChange={(e) => setNgayBu(e.target.value)} />
           </div>
           <div className="row">
-            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Xác nhận đặt học bù (ghi thật vào GHL)"}</button>
+            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Xác nhận đặt học bù"}</button>
             <button onClick={onCancel} disabled={busy}>Huỷ</button>
           </div>
           {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -796,7 +796,7 @@ function AttendanceHistory({ ghiDanhId, lop, attendance }) {
           return (
             <li key={i}>
               {fmt(a.date)} — {STATUS_SHORT[a.status] || a.status}
-              {a.real ? <span className="chip real-tag" style={{ marginLeft: 8 }}>THẬT</span> : <span className="muted" style={{ marginLeft: 8 }}>(nháp cục bộ)</span>}
+              {!a.real && <span className="chip chip-bad" style={{ marginLeft: 8 }} title="Chưa lưu được vào hệ thống">Chưa đồng bộ</span>}
               {booking && <span className="chip chip-warn" style={{ marginLeft: 8 }}>Đã đặt bù: {booking.lopBu} · {fmt(booking.ngayBu)}</span>}
               {eligible && bookingFor !== a.date && <button style={{ marginLeft: 8 }} onClick={() => setBookingFor(a.date)}>Đặt học bù</button>}
               {bookingFor === a.date && (
@@ -961,7 +961,7 @@ function AssignTeacherForm({ lop, onDone, onCancel }) {
             </select>
           </div>
           <div className="row">
-            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Gán (ghi thật vào GHL)"}</button>
+            <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Gán"}</button>
             <button onClick={onCancel} disabled={busy}>Huỷ</button>
           </div>
           {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -994,7 +994,7 @@ function AddGiaoVienForm({ onDone, onCancel }) {
         <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       <div className="row">
-        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang ghi vào GHL…" : "Thêm (ghi thật vào GHL)"}</button>
+        <button className="primary" onClick={submit} disabled={busy}>{busy ? "Đang lưu…" : "Thêm"}</button>
         <button onClick={onCancel} disabled={busy}>Huỷ</button>
       </div>
       {err && <p style={{ color: "var(--bad)" }}>{err}</p>}
@@ -1256,8 +1256,8 @@ function StaffManagement({ me, brand }) {
   };
   if (!list) return <p className="muted">Đang tải…</p>;
   return (
-    <div className="card wide" style={{ marginTop: 14 }}>
-      <h3>Nhân viên được cấp quyền truy cập</h3>
+    <div className="card wide">
+      <h3>Phân quyền nhân viên</h3>
       <p className="muted">Email phải khớp đúng email Google/GHL của người đó — khi họ bấm menu "{brand.menuLabel}" trong GHL, hệ thống tra theo email này để cho vào.</p>
       <table style={{ marginTop: 10 }}>
         <thead><tr><th>Email</th><th>Tên</th><th>Vai trò</th><th></th></tr></thead>
@@ -1315,7 +1315,8 @@ function ConfigPage({ me, brand }) {
   };
   return (
     <section>
-      <div className="card wide">
+      <StaffManagement me={me} brand={brand} />
+      <div className="card wide" style={{ marginTop: 14 }}>
         <h3>Quy tắc học bù</h3>
         <p className="muted">Áp dụng khi 1 học viên vắng 1 buổi và muốn xếp học bù buổi khác.</p>
         <div style={{ marginTop: 14 }}>
@@ -1346,7 +1347,6 @@ function ConfigPage({ me, brand }) {
         </dl>
         <p className="muted" style={{ marginTop: 8 }}>Đổi 2 quy tắc này ảnh hưởng cách thiết kế Buổi học/Điểm danh, không chỉ là 1 con số — cần bàn lại thay vì tự sửa ở đây.</p>
       </div>
-      <StaffManagement me={me} brand={brand} />
     </section>
   );
 }
@@ -1464,9 +1464,9 @@ function Dashboard() {
         )}
       </div>
       <div className="stat-grid">
-        <StatCard label="Học viên (thí điểm)" value={d.totalStudents} sub={`${d.classesWithStudents}/${d.totalClasses} lớp có học viên`} />
-        <StatCard label="Lượt điểm danh" value={attTotal} sub={`${d.attendance.real} đã ghi trên GHL · ${d.attendance.demo} nháp cục bộ`} />
-        <StatCard label="Tỷ lệ vắng" value={`${absentRate}%`} sub="số liệu còn ít, chỉ mang tính minh hoạ" />
+        <StatCard label="Học viên" value={d.totalStudents} sub={`${d.classesWithStudents}/${d.totalClasses} lớp có học viên`} />
+        <StatCard label="Lượt điểm danh" value={attTotal} sub={d.attendance.demo > 0 ? `${d.attendance.demo} chưa đồng bộ` : "đã lưu đầy đủ"} />
+        <StatCard label="Tỷ lệ vắng" value={`${absentRate}%`} sub={`trên ${attTotal} lượt điểm danh`} />
         <StatCard label="Học bù đã đặt" value={d.tongHocBuDaDat} sub="lượt đặt lịch học bù thực tế" />
       </div>
       <div className="grid" style={{ marginTop: 14 }}>
@@ -1479,11 +1479,9 @@ function Dashboard() {
           {Object.entries(d.attendance.statusCount).map(([k, v]) => <BarRow key={k} label={STATUS_SHORT[k] || k} value={v} max={statusMax} color={ATT_STATUS_COLOR[k]} />)}
         </div>
         <div className="card wide">
-          <h3>Học phí (dữ liệu cũ)</h3>
+          <h3>Tổng học phí</h3>
           <div className="stat-value">{fmtVnd(d.totalPhi)}</div>
-          <p className="muted stat-sub">đang chờ chuẩn hoá định dạng tiền tệ</p>
         </div>
-        <div className="card wide"><p className="muted">{d.note}</p></div>
       </div>
     </section>
   );
@@ -1577,9 +1575,9 @@ export default function App() {
   const open = (i) => { location.hash = `#/khach/${i}`; };
   const TITLES = { "diem-danh": "Điểm danh", lop: "Quản lý lớp", "bao-cao": "Báo cáo tổng quan", khach: "Khách hàng", "hoc-vien": "Hồ sơ học viên", "cau-hinh": "Cấu hình", "thoi-khoa-bieu": "Thời khoá biểu", "giao-vien": "Giáo viên" };
   const SUBS = {
-    "diem-danh": `${brand.orgLabel} · dữ liệu thí điểm trên tài khoản GHL thật`,
-    lop: `${brand.orgLabel} · dữ liệu thí điểm trên tài khoản GHL thật`,
-    "bao-cao": `${brand.orgLabel} · tổng hợp từ dữ liệu thí điểm hiện có`,
+    "diem-danh": `${brand.orgLabel} · điểm danh theo lớp`,
+    lop: `${brand.orgLabel} · danh sách lớp và học viên`,
+    "bao-cao": `${brand.orgLabel} · tổng quan hoạt động`,
     khach: "123 GYM Bạch Đằng · bản demo, dữ liệu chỉ nằm trên máy này", // module riêng, không thuộc thương hiệu trên — không đổi theo branding.json
     "hoc-vien": `${brand.orgLabel} · xuyên suốt mọi lớp học viên từng/đang học`,
     "cau-hinh": `${brand.orgLabel} · quy tắc do trung tâm quyết định`,

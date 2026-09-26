@@ -303,7 +303,7 @@ http.createServer(async (req, res) => {
       let input; try { input = JSON.parse(body); } catch { return json(res, { error: "invalid json" }, 400); }
       const { hocVienId, lop, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu } = input || {};
       const student = allStudents().find((s) => s.hoc_vien_id === hocVienId);
-      if (!student) return json(res, { error: "Không tìm thấy học viên trong danh sách thí điểm" }, 400);
+      if (!student) return json(res, { error: "Không tìm thấy học viên" }, 400);
       if (student.lop === lop && student.gd_trang_thai === "dang_hoc") return json(res, { error: `${student.name} đã đang học lớp ${lop} rồi` }, 400);
       const cls = allClasses().find((c) => c.lop === lop);
       if (!cls) return json(res, { error: "Không tìm thấy lớp" }, 400);
@@ -351,7 +351,7 @@ http.createServer(async (req, res) => {
       let input; try { input = JSON.parse(body); } catch { return json(res, { error: "invalid json" }, 400); }
       const { ghiDanhIdCu, hocVienId, lopMoi, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu } = input || {};
       const student = allStudents().find((s) => s.hoc_vien_id === hocVienId);
-      if (!student) return json(res, { error: "Không tìm thấy học viên trong danh sách thí điểm" }, 400);
+      if (!student) return json(res, { error: "Không tìm thấy học viên" }, 400);
       if (student.lop === lopMoi) return json(res, { error: `Học viên đang ở lớp ${lopMoi} rồi, chọn lớp khác` }, 400);
       const cls = allClasses().find((c) => c.lop === lopMoi);
       if (!cls) return json(res, { error: "Không tìm thấy lớp mới" }, 400);
@@ -660,7 +660,6 @@ http.createServer(async (req, res) => {
         attendance: { real: realAtt, demo: demoAtt, statusCount, absentCount },
         totalPhi, expiringSoon, absentStreak, todaySessions, todayThu, thuLabel: THU_LABEL,
         lopChuaCoGV, lopChuaCoLich, tongHocBuDaDat: hocBuOverlay.length,
-        note: "Đây là dữ liệu thí điểm (18 học viên) nên số liệu điểm danh còn ít, chỉ minh hoạ cách tính chứ chưa đại diện cho toàn trung tâm. Học phí đang lấy từ dữ liệu cũ, sẽ chuẩn hoá khi hoàn tất chuyển đổi.",
       });
     }
     if ((m = u.pathname.match(/^\/api\/candy\/phu-huynh\/([^/]+)$/))) {
