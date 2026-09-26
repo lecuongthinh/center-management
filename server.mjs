@@ -2,7 +2,7 @@
 // The only outbound call is a GET of one contact's notes for the profile screen (ghl-readonly.mjs has no write function).
 import http from "http"; import fs from "fs"; import path from "path"; import { fileURLToPath } from "url";
 import { ghlGet } from "./ghl-readonly.mjs";
-import { writeAttendance, writerEnabled, getBuoiHoc, setBuoiHocTrangThai, getPhuHuynh, enrollStudent, renewEnrollment, setLichHoc, setGhiDanhTrangThai, generateSessions, listBuoiHoc, updateBuoiHoc, createGiaoVien, updateGiaoVien, ganGiaoVienChoLop } from "./ghl-write.mjs";
+import { writeAttendance, writerEnabled, getBuoiHoc, setBuoiHocTrangThai, getPhuHuynh, enrollStudent, createHocVien, renewEnrollment, setLichHoc, setGhiDanhTrangThai, generateSessions, listBuoiHoc, updateBuoiHoc, createGiaoVien, updateGiaoVien, ganGiaoVienChoLop } from "./ghl-write.mjs";
 import { findStaff, listStaff, addStaff, setStaffRole, removeStaff, createSession, getSession, destroySession, getCmlKey, decryptGhlUserData } from "./auth.mjs";
 import { kvGet, kvSet } from "./db.mjs";
 const DELAY = Number(process.env.MIRROR_DELAY_MS ?? 140); // simulates a remote Supabase round-trip (measured ~140 ms)
@@ -301,21 +301,39 @@ http.createServer(async (req, res) => {
     if (req.method === "POST" && u.pathname === "/api/candy/ghi-danh") {
       let body = ""; for await (const ch of req) body += ch;
       let input; try { input = JSON.parse(body); } catch { return json(res, { error: "invalid json" }, 400); }
-      const { hocVienId, lop, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu } = input || {};
-      const student = allStudents().find((s) => s.hoc_vien_id === hocVienId);
-      if (!student) return json(res, { error: "Không tìm thấy học viên" }, 400);
-      if (student.lop === lop && student.gd_trang_thai === "dang_hoc") return json(res, { error: `${student.name} đã đang học lớp ${lop} rồi` }, 400);
+      // "newStudent" (thay vì hocVienId): xếp lớp cho 1 học viên HOÀN TOÀN MỚI, tạo Học viên trên GHL rồi
+      // ghi danh luôn trong cùng 1 thao tác — gap lớn nhất trước khi đưa app cho khách khác dùng thật, vì
+      // trước giờ chỉ thao tác được trên học viên đã có sẵn trong hệ thống.
+      const { hocVienId, newStudent, lop, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu } = input || {};
+      let student = null;
+      if (!newStudent) {
+        student = allStudents().find((s) => s.hoc_vien_id === hocVienId);
+        if (!student) return json(res, { error: "Không tìm thấy học viên" }, 400);
+        if (student.lop === lop && student.gd_trang_thai === "dang_hoc") return json(res, { error: `${student.name} đã đang học lớp ${lop} rồi` }, 400);
+      } else if (!newStudent.name || !newStudent.name.trim()) {
+        return json(res, { error: "Cần tên học viên mới" }, 400);
+      }
       const cls = allClasses().find((c) => c.lop === lop);
       if (!cls) return json(res, { error: "Không tìm thấy lớp" }, 400);
       const maxSiSo = Number(cls.si_so_toi_da) || 0;
       if (maxSiSo && cls.students.length >= maxSiSo) return json(res, { error: `Lớp ${lop} đã đủ sĩ số tối đa (${maxSiSo}), không thể xếp thêm` }, 400);
       if (!writerEnabled()) return json(res, { error: "Chưa bật ghi thật (thiếu GHL_PIT)" }, 400);
       try {
-        const r = await enrollStudent({ hocVienId, studentName: student.name, lop, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu });
+        let finalHocVienId = hocVienId, studentName, ngaySinh, hvTrangThai;
+        if (newStudent) {
+          const created = await createHocVien({ name: newStudent.name, ngaySinh: newStudent.ngaySinh, coSo: newStudent.coSo || cls.co_so });
+          finalHocVienId = created.hocVienId;
+          studentName = newStudent.name.trim();
+          ngaySinh = newStudent.ngaySinh || "";
+          hvTrangThai = "dang_hoc";
+        } else {
+          studentName = student.name; ngaySinh = student.ngay_sinh; hvTrangThai = student.hv_trang_thai;
+        }
+        const r = await enrollStudent({ hocVienId: finalHocVienId, studentName, lop, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu });
         const row = {
-          n: nextEnrollN(), name: student.name, hoc_vien_id: hocVienId, ghi_danh_id: r.ghiDanhId,
+          n: nextEnrollN(), name: studentName, hoc_vien_id: finalHocVienId, ghi_danh_id: r.ghiDanhId,
           lop, lop_id: r.lopId, co_so: cls.co_so, sessions_total: tongSoBuoi || "", fee: Number(hocPhi) || 0,
-          so_buoi_da_hoc: 0, gd_trang_thai: "dang_hoc", ngay_sinh: student.ngay_sinh, hv_trang_thai: student.hv_trang_thai,
+          so_buoi_da_hoc: 0, gd_trang_thai: "dang_hoc", ngay_sinh: ngaySinh, hv_trang_thai: hvTrangThai,
           tien_giao_cu: Number(tienGiaoCu) || 0, ngay_bat_dau: ngayBatDau, ngay_het_han: ngayHetHan || "",
         };
         enrollOverlay.push(row);

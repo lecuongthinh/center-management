@@ -336,7 +336,10 @@ function ClassList({ openLop }) {
 // lần trước khi chốt như đánh dấu điểm danh cả lớp) nên không cần optimistic/local-first ở đây.
 function EnrollForm({ lop, siSoHienTai, siSoToiDa, onDone, onCancel }) {
   const [options, setOptions] = useState(null);
+  const [isNew, setIsNew] = useState(false);
   const [hocVienId, setHocVienId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newNgaySinh, setNewNgaySinh] = useState("");
   const [ngayBatDau, setNgayBatDau] = useState(todayISO);
   const [ngayHetHan, setNgayHetHan] = useState("");
   const [tongSoBuoi, setTongSoBuoi] = useState("");
@@ -347,9 +350,14 @@ function EnrollForm({ lop, siSoHienTai, siSoToiDa, onDone, onCancel }) {
   useEffect(() => { get("/api/candy/hoc-vien-test").then(setOptions); }, []);
   const full = siSoToiDa && siSoHienTai >= siSoToiDa;
   const submit = () => {
-    if (!hocVienId) { setErr("Chọn 1 học viên."); return; }
+    if (isNew) { if (!newName.trim()) { setErr("Nhập tên học viên mới."); return; } }
+    else if (!hocVienId) { setErr("Chọn 1 học viên."); return; }
     setBusy(true); setErr("");
-    fetch("/api/candy/ghi-danh", { method: "POST", body: JSON.stringify({ hocVienId, lop, ngayBatDau, ngayHetHan, tongSoBuoi: Number(tongSoBuoi) || 0, hocPhi: Number(hocPhi) || 0, tienGiaoCu: Number(tienGiaoCu) || 0 }) })
+    const payload = {
+      lop, ngayBatDau, ngayHetHan, tongSoBuoi: Number(tongSoBuoi) || 0, hocPhi: Number(hocPhi) || 0, tienGiaoCu: Number(tienGiaoCu) || 0,
+      ...(isNew ? { newStudent: { name: newName.trim(), ngaySinh: newNgaySinh } } : { hocVienId }),
+    };
+    fetch("/api/candy/ghi-danh", { method: "POST", body: JSON.stringify(payload) })
       .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
       .then(({ ok, j }) => { if (!ok) { setErr(j.error || "Lỗi không rõ"); return; } onDone(); })
       .finally(() => setBusy(false));
@@ -360,12 +368,31 @@ function EnrollForm({ lop, siSoHienTai, siSoToiDa, onDone, onCancel }) {
       <h3>Ghi danh học viên vào {lop}</h3>
       {!options ? <p className="muted">Đang tải danh sách học viên…</p> : (
         <>
-          <div className="row" style={{ flexWrap: "wrap" }}>
-            <select value={hocVienId} onChange={(e) => setHocVienId(e.target.value)}>
-              <option value="">— Chọn học viên —</option>
-              {options.map((o) => <option key={o.hoc_vien_id} value={o.hoc_vien_id}>{o.name} ({o.lops.map((l) => l.lop).join(", ")})</option>)}
-            </select>
+          <div className="row" style={{ gap: 16, marginBottom: 4 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <input type="radio" checked={!isNew} onChange={() => setIsNew(false)} /> Học viên có sẵn
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <input type="radio" checked={isNew} onChange={() => setIsNew(true)} /> Học viên mới
+            </label>
           </div>
+          {!isNew ? (
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <select value={hocVienId} onChange={(e) => setHocVienId(e.target.value)}>
+                <option value="">— Chọn học viên —</option>
+                {options.map((o) => <option key={o.hoc_vien_id} value={o.hoc_vien_id}>{o.name} ({o.lops.map((l) => l.lop).join(", ")})</option>)}
+              </select>
+            </div>
+          ) : (
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <label className="muted" style={{ display: "flex", flexDirection: "column", gap: 4 }}>Họ tên học viên mới
+                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="VD: Nguyễn Văn A" style={{ width: 220 }} />
+              </label>
+              <label className="muted" style={{ display: "flex", flexDirection: "column", gap: 4 }}>Ngày sinh
+                <input type="date" value={newNgaySinh} onChange={(e) => setNewNgaySinh(e.target.value)} />
+              </label>
+            </div>
+          )}
           <div className="row" style={{ flexWrap: "wrap", marginTop: 8 }}>
             <label className="muted" style={{ display: "flex", flexDirection: "column", gap: 4 }}>Ngày bắt đầu
               <input type="date" value={ngayBatDau} onChange={(e) => setNgayBatDau(e.target.value)} />

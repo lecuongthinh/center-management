@@ -17,6 +17,7 @@ const LOC = env.GHL_LOCATION_ID; // location riêng của từng khách — đ�
 const BASE = "https://services.leadconnectorhq.com";
 const H = () => ({ Authorization: `Bearer ${PIT}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" });
 
+const HOC_VIEN_KEY = "custom_objects.hoc_vien";
 const DIEM_DANH_KEY = "custom_objects.diem_danh";
 const BUOI_HOC_KEY = "custom_objects.buoi_hoc";
 const GHI_DANH_KEY = "custom_objects.ghi_danh";
@@ -162,6 +163,24 @@ export async function setBuoiHocTrangThai({ lop, date, trangThai }) {
 // caller (server.mjs) vì cần cộng cả overlay — hàm này chỉ lo phần ghi thật + validate an toàn.
 // hoc_phi dùng field MONETORY đang lỗi (không nhận VND) nên theo đúng workaround đã dùng cho 18 hs cũ:
 // ghi số tiền vào ghi_chu dạng text, không đụng vào field hoc_phi.
+// Thêm học viên mới (gap lớn nhất còn lại trước khi cho khách trial dùng thật — trước giờ chỉ thao tác
+// được trên học viên ĐÃ CÓ SẴN, không có cách tạo người hoàn toàn mới). Chỉ tạo hồ sơ Học viên trên GHL —
+// CHƯA nối với Contact phụ huynh (đồng bộ CRM phụ huynh vẫn cần làm tay trên GHL nếu cần, hoặc làm ở đợt
+// sau) — giữ phạm vi gọn để không phải xây thêm luồng tìm/tạo Contact ngay trong lần này.
+// object hoàn toàn mới do chính app tạo nên không cần allowlist theo id như enrollStudent — nhưng vẫn
+// thêm ngay vào ALLOWED_HOC_VIEN sau khi tạo để ghi danh theo sau (cùng 1 request) dùng được ngay.
+export async function createHocVien({ name, ngaySinh, coSo }) {
+  if (!writerEnabled()) throw new Error("GHL_PIT không có trong .env — chưa bật ghi thật");
+  if (!name || !name.trim()) throw new Error("Cần tên học viên");
+  const props = { name: name.trim(), trang_thai: "dang_hoc" };
+  if (ngaySinh) props.ngay_sinh = ngaySinh;
+  if (coSo) props.co_so = coSo;
+  const rec = await ghl("POST", `/objects/${HOC_VIEN_KEY}/records`, { locationId: LOC, properties: props });
+  const hocVienId = rec.record.id;
+  ALLOWED_HOC_VIEN.add(hocVienId);
+  return { hocVienId };
+}
+
 export async function enrollStudent({ hocVienId, studentName, lop, ngayBatDau, ngayHetHan, tongSoBuoi, hocPhi, tienGiaoCu }) {
   if (!writerEnabled()) throw new Error("GHL_PIT không có trong .env — chưa bật ghi thật");
   if (!ALLOWED_HOC_VIEN.has(hocVienId)) throw new Error(`Chặn: ${hocVienId} không nằm trong danh sách Học viên test được phép`);
@@ -177,6 +196,12 @@ export async function enrollStudent({ hocVienId, studentName, lop, ngayBatDau, n
   const ghiDanhId = rec.record.id;
   await ghl("POST", `/associations/relations`, { locationId: LOC, associationId: ASSOC_HOCVIEN_GHIDANH, firstRecordId: ghiDanhId, secondRecordId: hocVienId });
   await ghl("POST", `/associations/relations`, { locationId: LOC, associationId: ASSOC_LOP_GHIDANH, firstRecordId: ghiDanhId, secondRecordId: lopId });
+  // Bug thật phát hiện lúc xây "Thêm học viên mới": ALLOWED_GHI_DANH là Set tính 1 LẦN lúc module này
+  // load (từ base_snapshot + enrollment_overlay lúc khởi động), không tự cập nhật khi có ghi danh mới —
+  // nghĩa là ghi danh vừa tạo trong CÙNG phiên chạy này sẽ bị chặn "không nằm trong allowlist" nếu điểm
+  // danh/gia hạn ngay sau đó, phải đợi restart server mới đọc lại đúng. Thêm thẳng vào Set ngay tại đây
+  // để dùng được NGAY LẬP TỨC trong cùng phiên, không cần đợi restart.
+  ALLOWED_GHI_DANH.add(ghiDanhId);
   return { ghiDanhId, lopId, name };
 }
 
