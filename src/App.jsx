@@ -1542,7 +1542,8 @@ function AccessGate({ brand, msg }) {
 }
 
 // Giá trị mặc định trong lúc /api/branding chưa tải xong — chỉ để tránh màn hình trống 1 nhịp, không phải
-// nguồn sự thật (nguồn thật luôn là data/branding.json trên server, đổi ở đó thì đổi cho cả app).
+// nguồn sự thật. Từ đợt multi-tenant: nguồn thật là bảng platform.tenants trên Postgres (1 dòng/trung tâm),
+// không còn là 1 file JSON tĩnh trên server nữa — server tự trả đúng thương hiệu của trung tâm đang đăng nhập.
 const DEFAULT_BRAND = { brandName: "…", brandMark: "··", orgLabel: "…", menuLabel: "…", khachHangEnabled: false };
 
 export default function App() {
@@ -1573,6 +1574,10 @@ export default function App() {
           if (r.ok && j.token) localStorage.setItem(TOKEN_KEY, j.token);
         } catch { /* không lấy được (không nằm trong GHL, hoặc GHL chưa phản hồi kịp) — thử Tầng 1/token cũ nếu có */ }
       }
+      // Đợt multi-tenant: lần gọi /api/branding lúc mount (trên) chạy TRƯỚC khi biết token của Tầng 2 (vừa
+      // set ở trên, nếu có) nên chỉ thấy được thương hiệu chung chung. Gọi lại 1 lần nữa ở đây — giờ đã có
+      // token (Tầng 1 lẫn Tầng 2 đều xong) — để đổi sang đúng tên/logo của trung tâm vừa đăng nhập vào.
+      get("/api/branding").then((b) => { if (b && b.brandName) { setBrand(b); document.title = `${b.brandName} · Vận hành`; } });
       get("/api/candy/me").then((d) => setMe(d && d.email ? d : null));
     })();
   }, []);
@@ -1605,7 +1610,7 @@ export default function App() {
     "diem-danh": `${brand.orgLabel} · điểm danh theo lớp`,
     lop: `${brand.orgLabel} · danh sách lớp và học viên`,
     "bao-cao": `${brand.orgLabel} · tổng quan hoạt động`,
-    khach: "123 GYM Bạch Đằng · bản demo, dữ liệu chỉ nằm trên máy này", // module riêng, không thuộc thương hiệu trên — không đổi theo branding.json
+    khach: "123 GYM Bạch Đằng · bản demo, dữ liệu chỉ nằm trên máy này", // module riêng, không thuộc thương hiệu trên — không đổi theo tenant
     "hoc-vien": `${brand.orgLabel} · xuyên suốt mọi lớp học viên từng/đang học`,
     "cau-hinh": `${brand.orgLabel} · quy tắc do trung tâm quyết định`,
     "thoi-khoa-bieu": `${brand.orgLabel} · chỉ hiện lớp đã nhập lịch`,

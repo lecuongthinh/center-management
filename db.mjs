@@ -1,9 +1,12 @@
-// Kết nối Postgres dùng chung (Supabase project "lecuongthinh", schema riêng candy_english — cùng project
-// với growthLEADERs/uplifting nhưng KHÔNG đụng bảng của họ, chỉ thao tác trong schema này). Thay cho việc
-// lưu trạng thái vận hành (nhân viên/phiên đăng nhập/cấu hình/override lớp...) ra file JSON cục bộ — file
-// cục bộ sẽ MẤT SẠCH mỗi lần Render redeploy (ổ đĩa không bền), còn Postgres thì không.
-// candy_attendance.json (ảnh chụp gốc lúc migrate) và data/contacts.json (module 123 GYM riêng, không
-// deploy) CHƯA chuyển sang đây — vẫn là file tĩnh, ít thay đổi, để đợt sau.
+// Kết nối Postgres dùng chung (Supabase project "lecuongthinh" — cùng project với growthLEADERs/uplifting
+// nhưng mỗi khách hàng của app này có 1 SCHEMA RIÊNG, không đụng bảng của họ lẫn của nhau).
+//
+// Đợt "multi-tenant" (chuẩn bị cho khách thứ 2 trở đi dùng thật, tự phục vụ): trước đây mọi hàm ở đây hardcode
+// schema "candy_english" ngay trong câu SQL — đúng cho lúc chỉ có 1 khách. Giờ MỌI hàm theo-khách-hàng nhận
+// thêm tham số `schema` (tên schema Postgres của khách đó), và có thêm 1 khu vực HOÀN TOÀN RIÊNG — schema
+// "platform" — không thuộc về khách hàng nào, chỉ để BIẾT có những khách hàng nào (bảng `tenants`) và ai đang
+// đăng nhập (bảng `sessions`, dùng chung cho mọi khách vì token phải tự tra ra được thuộc khách nào TRƯỚC KHI
+// biết cần đọc schema nào — không thể phân mảnh session theo từng schema riêng được).
 import pg from "pg";
 const { Pool } = pg;
 
@@ -17,65 +20,150 @@ if (!DATABASE_URL) throw new Error("Thiếu DATABASE_URL trong .env — chuỗi 
 
 const pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
-// --- Kho key-value chung (thay cho các file overlay/config nhỏ) -----------------------------------------
-// Mỗi "file" cũ (candy_lop_overrides.json, candy_giaovien.json, candy_config.json...) giờ là 1 row, key =
-// tên logic, value = nguyên object/array JSON y hệt trước đây — đổi ít code nhất có thể ở phía gọi.
-export async function kvGet(key, fallback) {
-  const r = await pool.query("select value from candy_english.kv_store where key = $1", [key]);
+// Tên schema là 1 ĐỊNH DANH (identifier) chèn thẳng vào chuỗi SQL — Postgres không cho tham số hoá tên bảng/
+// schema như giá trị thường ($1, $2...). Mọi schema đến từ đâu đó KHÔNG do chính code này gõ tay (ví dụ đọc
+// từ bảng tenants) đều phải qua đây trước khi chèn vào SQL, để 1 tên schema sai/ác ý không thể chèn SQL lạ.
+const SCHEMA_RE = /^[a-z][a-z0-9_]{1,50}$/;
+function assertSchema(name) {
+  if (!SCHEMA_RE.test(String(name || ""))) throw new Error(`Tên schema không hợp lệ: ${name}`);
+  return name;
+}
+
+// --- Hạ tầng dùng chung cho MỌI khách hàng (schema "platform") --------------------------------------------
+// Tạo 1 lần, idempotent (IF NOT EXISTS) — an toàn để gọi lại mỗi lần server khởi động.
+async function ensurePlatformSchema() {
+  await pool.query("create schema if not exists platform");
+  await pool.query(`create table if not exists platform.tenants (
+    location_id text primary key,
+    schema_name text not null unique,
+    ghl_pit text not null,
+    brand_name text not null,
+    brand_mark text not null,
+    org_label text not null,
+    menu_label text not null,
+    created_at timestamptz not null default now()
+  )`);
+  // Session dùng CHUNG 1 bảng cho mọi khách (không nằm trong schema riêng của khách) — xem giải thích ở đầu file.
+  await pool.query(`create table if not exists platform.sessions (
+    id text primary key,
+    location_id text not null,
+    email text not null,
+    name text,
+    role text,
+    created_at timestamptz not null default now()
+  )`);
+}
+const platformReady = ensurePlatformSchema();
+
+// --- Tenants (bảng điều khiển — biết có những khách hàng nào, khách nào ứng với location GHL nào) ---------
+export async function getTenantByLocation(locationId) {
+  await platformReady;
+  const r = await pool.query("select location_id, schema_name, ghl_pit, brand_name, brand_mark, org_label, menu_label from platform.tenants where location_id = $1", [locationId]);
+  return r.rows[0] || null;
+}
+export async function listTenants() {
+  await platformReady;
+  const r = await pool.query("select location_id, schema_name, brand_name, brand_mark, org_label, menu_label, created_at from platform.tenants order by created_at asc");
+  return r.rows; // KHÔNG trả ghl_pit ra ngoài hàm này — tránh lộ token qua bất kỳ route liệt kê tenants nào lỡ dùng nhầm hàm này sau này.
+}
+export async function upsertTenant({ locationId, schemaName, ghlPit, brandName, brandMark, orgLabel, menuLabel }) {
+  await platformReady;
+  assertSchema(schemaName);
+  if (!locationId) throw new Error("Cần locationId");
+  const r = await pool.query(
+    `insert into platform.tenants (location_id, schema_name, ghl_pit, brand_name, brand_mark, org_label, menu_label)
+     values ($1,$2,$3,$4,$5,$6,$7)
+     on conflict (location_id) do update set schema_name=excluded.schema_name, ghl_pit=excluded.ghl_pit,
+       brand_name=excluded.brand_name, brand_mark=excluded.brand_mark, org_label=excluded.org_label, menu_label=excluded.menu_label
+     returning location_id, schema_name, brand_name, brand_mark, org_label, menu_label`,
+    [locationId, schemaName, ghlPit, brandName, brandMark, orgLabel, menuLabel]
+  );
+  return r.rows[0];
+}
+
+// Tạo schema + 2 bảng con (kv_store, staff) cho 1 khách hàng MỚI — idempotent, gọi lại không lỗi nếu đã có.
+// Đây là toàn bộ phần "hạ tầng dữ liệu" mà 1 khách hàng mới cần, tách khỏi upsertTenant() để script khởi
+// tạo (provision-tenant.mjs) có thể gọi trước khi biết đủ mọi chi tiết thương hiệu.
+export async function ensureTenantSchema(schemaName) {
+  assertSchema(schemaName);
+  await pool.query(`create schema if not exists ${schemaName}`);
+  await pool.query(`create table if not exists ${schemaName}.kv_store (
+    key text primary key, value jsonb not null, updated_at timestamptz not null default now()
+  )`);
+  await pool.query(`create table if not exists ${schemaName}.staff (
+    email text primary key, name text not null default '', role text not null default 'staff', added_at timestamptz not null default now()
+  )`);
+}
+
+// --- Kho key-value theo từng khách hàng (thay cho các file overlay/config nhỏ) -----------------------------
+export async function kvGet(schema, key, fallback) {
+  assertSchema(schema);
+  const r = await pool.query(`select value from ${schema}.kv_store where key = $1`, [key]);
   return r.rows[0] ? r.rows[0].value : fallback;
 }
-export async function kvSet(key, value) {
+export async function kvSet(schema, key, value) {
+  assertSchema(schema);
   await pool.query(
-    "insert into candy_english.kv_store (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()",
+    `insert into ${schema}.kv_store (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`,
     [key, JSON.stringify(value)]
   );
 }
 
-// --- Nhân viên (đăng nhập/phân quyền) --------------------------------------------------------------------
+// --- Nhân viên theo từng khách hàng (đăng nhập/phân quyền) --------------------------------------------------
 const norm = (email) => String(email || "").trim().toLowerCase();
 
-export async function findStaff(email) {
-  const r = await pool.query("select email, name, role, added_at from candy_english.staff where email = $1", [norm(email)]);
+export async function findStaff(schema, email) {
+  assertSchema(schema);
+  const r = await pool.query(`select email, name, role, added_at from ${schema}.staff where email = $1`, [norm(email)]);
   return r.rows[0] || null;
 }
-export async function listStaff() {
-  const r = await pool.query("select email, name, role, added_at from candy_english.staff order by added_at asc");
+export async function listStaff(schema) {
+  assertSchema(schema);
+  const r = await pool.query(`select email, name, role, added_at from ${schema}.staff order by added_at asc`);
   return r.rows;
 }
-export async function addStaff({ email, name, role }) {
+export async function addStaff(schema, { email, name, role }) {
+  assertSchema(schema);
   email = norm(email);
   if (!email || !email.includes("@")) throw new Error("Email không hợp lệ");
-  if (await findStaff(email)) throw new Error("Email này đã có trong danh sách nhân viên");
+  if (await findStaff(schema, email)) throw new Error("Email này đã có trong danh sách nhân viên");
   const r = await pool.query(
-    "insert into candy_english.staff (email, name, role) values ($1, $2, $3) returning email, name, role, added_at",
+    `insert into ${schema}.staff (email, name, role) values ($1, $2, $3) returning email, name, role, added_at`,
     [email, (name || "").trim() || email, role === "admin" ? "admin" : "staff"]
   );
   return r.rows[0];
 }
-export async function setStaffRole(email, role) {
+export async function setStaffRole(schema, email, role) {
+  assertSchema(schema);
   const r = await pool.query(
-    "update candy_english.staff set role = $2 where email = $1 returning email, name, role, added_at",
+    `update ${schema}.staff set role = $2 where email = $1 returning email, name, role, added_at`,
     [norm(email), role === "admin" ? "admin" : "staff"]
   );
   if (!r.rows[0]) throw new Error("Không tìm thấy nhân viên với email này");
   return r.rows[0];
 }
-export async function removeStaff(email) {
-  const r = await pool.query("delete from candy_english.staff where email = $1", [norm(email)]);
+export async function removeStaff(schema, email) {
+  assertSchema(schema);
+  const r = await pool.query(`delete from ${schema}.staff where email = $1`, [norm(email)]);
   return r.rowCount > 0;
 }
 
-// --- Phiên đăng nhập --------------------------------------------------------------------------------------
-export async function createSession({ email, name, role }) {
+// --- Phiên đăng nhập (chung cho mọi khách hàng — xem giải thích platform.sessions ở trên) -------------------
+export async function createSession({ locationId, email, name, role }) {
+  await platformReady;
   const id = (await import("crypto")).randomBytes(24).toString("hex");
-  await pool.query("insert into candy_english.sessions (id, email, name, role) values ($1,$2,$3,$4)", [id, email, name, role]);
+  await pool.query("insert into platform.sessions (id, location_id, email, name, role) values ($1,$2,$3,$4,$5)", [id, locationId, email, name, role]);
   return id;
 }
 export async function getSession(id) {
+  await platformReady;
   if (!id) return null;
-  const r = await pool.query("select email, name, role, created_at from candy_english.sessions where id = $1", [id]);
-  return r.rows[0] || null;
+  const r = await pool.query("select location_id, email, name, role, created_at from platform.sessions where id = $1", [id]);
+  if (!r.rows[0]) return null;
+  const row = r.rows[0];
+  return { locationId: row.location_id, email: row.email, name: row.name, role: row.role, created_at: row.created_at };
 }
 export async function destroySession(id) {
-  if (id) await pool.query("delete from candy_english.sessions where id = $1", [id]);
+  await platformReady;
+  if (id) await pool.query("delete from platform.sessions where id = $1", [id]);
 }
