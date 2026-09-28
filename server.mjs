@@ -5,7 +5,7 @@
 // nạp riêng theo từng locationId (hàm getAppState() bên dưới), tra theo tenant của phiên đăng nhập đang gọi.
 import http from "http"; import fs from "fs"; import path from "path"; import { fileURLToPath } from "url";
 import { ghlGet } from "./ghl-readonly.mjs";
-import { writeAttendance, writerEnabled, getBuoiHoc, setBuoiHocTrangThai, getPhuHuynh, enrollStudent, createHocVien, renewEnrollment, setLichHoc, setGhiDanhTrangThai, generateSessions, listBuoiHoc, updateBuoiHoc, createGiaoVien, updateGiaoVien, ganGiaoVienChoLop } from "./ghl-write.mjs";
+import { getCoSoOptions, writeAttendance, writerEnabled, getBuoiHoc, setBuoiHocTrangThai, getPhuHuynh, enrollStudent, createHocVien, renewEnrollment, setLichHoc, setGhiDanhTrangThai, generateSessions, listBuoiHoc, updateBuoiHoc, createGiaoVien, updateGiaoVien, ganGiaoVienChoLop } from "./ghl-write.mjs";
 import { findStaff, listStaff, addStaff, setStaffRole, removeStaff, createSession, getSession, destroySession, getCmlKey, decryptGhlUserData } from "./auth.mjs";
 import { kvGet, kvSet, getTenantByLocation, listTenants } from "./db.mjs";
 const DELAY = Number(process.env.MIRROR_DELAY_MS ?? 140); // simulates a remote Supabase round-trip (measured ~140 ms)
@@ -263,6 +263,8 @@ http.createServer(async (req, res) => {
     // đó `tenant` là null (chưa đăng nhập cho request đó) → getAppState(null) crash → toàn bộ asset trả 500,
     // app trắng trang. Chỉ nạp AppState khi THẬT SỰ cần (đường dẫn /api/candy/* VÀ đã có user).
     const t = (user && u.pathname.startsWith("/api/candy/")) ? await getAppState(tenant) : null;
+    // Danh sách cơ sở (key + nhãn) lấy thẳng từ GHL của trung tâm đang đăng nhập — xem getCoSoOptions.
+    if (u.pathname === "/api/candy/co-so") return json(res, { options: await getCoSoOptions(user.locationId) });
     if (u.pathname === "/api/candy/classes") {
       await sleep(DELAY);
       return json(res, t.allClasses().map((c) => ({ lop: c.lop, co_so: c.co_so, siso: c.students.length, trang_thai: c.trang_thai, cap_do: c.cap_do || "", giao_vien: c.giao_vien || "", si_so_toi_da: c.si_so_toi_da || "", cac_thu_hoc: c.cac_thu_hoc || "", gio_bat_dau: c.gio_bat_dau || "", gio_ket_thuc: c.gio_ket_thuc || "" })));

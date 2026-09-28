@@ -59,6 +59,25 @@ async function ghl(t, method, path, body) {
   return text ? JSON.parse(text) : {};
 }
 
+// Danh sách cơ sở (key + nhãn hiển thị) đọc THẲNG từ field `co_so` của object Lớp trên GHL của từng trung
+// tâm — nguồn sự thật duy nhất. Trước đây tên cơ sở nằm cứng trong code frontend: đổi nhãn trong CRM thì app
+// không đổi theo, và khách mới sẽ thấy tên cơ sở của Candy English. Cache 5 phút/tenant để không gọi GHL mỗi
+// lần mở trang; nếu GHL lỗi thì trả lại bản cache cũ (nếu có) thay vì làm hỏng cả màn hình.
+export async function getCoSoOptions(locationId) {
+  const t = await getTenantState(locationId);
+  if (t.coSoCache && Date.now() - t.coSoCache.at < 5 * 60_000) return t.coSoCache.options;
+  try {
+    const j = await ghl(t, "GET", `/objects/${LOP_KEY}?locationId=${t.LOC}&fetchProperties=true`);
+    const field = (j.fields || []).find((f) => /(^|\.)co_so$/.test(f.fieldKey || ""));
+    const options = (field?.options || []).map((o) => ({ key: o.key, label: o.label }));
+    t.coSoCache = { at: Date.now(), options };
+    return options;
+  } catch (e) {
+    console.error(`[${t.schemaName}] Đọc danh sách cơ sở từ GHL thất bại:`, e.message);
+    return t.coSoCache?.options || [];
+  }
+}
+
 // Buổi học = 1 real session of 1 Lớp on 1 date. Find-or-create so marking attendance twice for the
 // same lớp+ngày never creates a duplicate session record — the search is the idempotency check.
 async function findOrCreateBuoiHoc(t, { lop, date }) {

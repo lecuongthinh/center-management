@@ -241,7 +241,20 @@ function Attendance() {
   );
 }
 
-const CO_SO_LABEL = { quan_nam: "Quán Nam", trung_luc: "Trung Lực", thuy_nguyen: "Thuỷ Nguyên", vin_imperia: "Vin Imperia" };
+// Nhãn + màu cơ sở KHÔNG còn ghi cứng trong code: sau khi đăng nhập, App nạp danh sách từ GHL của đúng trung
+// tâm đang dùng (GET /api/candy/co-so, đọc field `co_so` của object Lớp) và đổ vào 2 object dưới đây — đổi
+// tên cơ sở trong CRM là app đổi theo, và khách mới thấy cơ sở của chính họ. Object được sửa tại chỗ (không
+// tạo mới) vì rất nhiều component đọc `CO_SO_LABEL[x]` trực tiếp lúc render.
+const CO_SO_LABEL = {};
+// Màu cũ của 4 cơ sở Candy giữ nguyên để giao diện đang dùng không đổi màu; cơ sở nào không có trong bảng này
+// (khách mới) được xoay vòng qua 4 token --co1..--co4 theo thứ tự trong danh sách.
+const LEGACY_CO_SO_COLOR = { vin_imperia: "var(--co1)", trung_luc: "var(--co2)", thuy_nguyen: "var(--co3)", quan_nam: "var(--co4)" };
+const CO_SO_COLOR = {};
+function applyCoSoOptions(options) {
+  for (const k of Object.keys(CO_SO_LABEL)) delete CO_SO_LABEL[k];
+  for (const k of Object.keys(CO_SO_COLOR)) delete CO_SO_COLOR[k];
+  options.forEach((o, i) => { CO_SO_LABEL[o.key] = o.label; CO_SO_COLOR[o.key] = LEGACY_CO_SO_COLOR[o.key] || `var(--co${(i % 4) + 1})`; });
+}
 const fmtVnd = (n) => n.toLocaleString("vi-VN") + " đ";
 
 const LOP_STATUS = { dang_mo: "Đang mở", da_dong: "Đã đóng", da_ket_thuc: "Đã kết thúc" };
@@ -1157,7 +1170,6 @@ function ClassManagement() {
 // Thời khoá biểu (Đợt "quản lý lớp còn thiếu gì" #2) — lưới 7 cột theo thứ, mỗi lớp là 1 dòng trong
 // đúng cột thứ nó học, sắp theo giờ bắt đầu. Chỉ những lớp ĐÃ nhập lịch mới xuất hiện — không suy đoán,
 // không bịa giờ cho lớp staff chưa từng nhập (giữ đúng dữ liệu thật).
-const CO_SO_COLOR = { vin_imperia: "var(--co1)", trung_luc: "var(--co2)", thuy_nguyen: "var(--co3)", quan_nam: "var(--co4)" };
 const HOUR_PX = 56; // chiều cao 1 giờ trên lưới — đủ đọc được tên lớp + giờ trong khối 30-45 phút
 const toMin = (t) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + m; };
 const JS_DAY_TO_THU = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"]; // Date.getDay(): 0=CN...6=T7
@@ -1550,6 +1562,13 @@ export default function App() {
   const [me, setMe] = useState(undefined); // undefined = đang tải, null = chưa đăng nhập, object = đã đăng nhập
   const [brand, setBrand] = useState(DEFAULT_BRAND);
   const [ssoError, setSsoError] = useState("");
+  const [coSoReady, setCoSoReady] = useState(false);
+  // Nạp danh sách cơ sở của trung tâm ngay khi biết đã đăng nhập, TRƯỚC khi vẽ giao diện chính — để không có
+  // nhịp nào hiện mã thô (vd "quan_nam") rồi mới đổi sang tên thật.
+  useEffect(() => {
+    if (!me) return;
+    get("/api/candy/co-so").then((d) => { applyCoSoOptions(d.options || []); }).catch(() => {}).finally(() => setCoSoReady(true));
+  }, [me]);
   useEffect(() => { get("/api/branding").then((b) => { if (b && b.brandName) { setBrand(b); document.title = `${b.brandName} · Vận hành`; } }); }, []);
   useEffect(() => {
     (async () => {
@@ -1643,6 +1662,7 @@ export default function App() {
     ...(me?.role === "admin" ? [{ key: "cau-hinh", href: "#/cau-hinh", label: "Cấu hình" }] : []),
   ];
   if (me === undefined) return <p className="muted" style={{ padding: 40 }}>Đang tải…</p>;
+  if (me && !coSoReady) return <p className="muted" style={{ padding: 40 }}>Đang tải…</p>;
   if (me === null) return <AccessGate brand={brand} msg={ssoError || `Vui lòng vào GHL và bấm menu "${brand.menuLabel}" để truy cập.`} />;
   return (
     <div className="shell">
