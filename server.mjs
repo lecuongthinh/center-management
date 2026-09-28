@@ -7,7 +7,7 @@ import http from "http"; import fs from "fs"; import path from "path"; import { 
 import { ghlGet } from "./ghl-readonly.mjs";
 import { writeAttendance, writerEnabled, getBuoiHoc, setBuoiHocTrangThai, getPhuHuynh, enrollStudent, createHocVien, renewEnrollment, setLichHoc, setGhiDanhTrangThai, generateSessions, listBuoiHoc, updateBuoiHoc, createGiaoVien, updateGiaoVien, ganGiaoVienChoLop } from "./ghl-write.mjs";
 import { findStaff, listStaff, addStaff, setStaffRole, removeStaff, createSession, getSession, destroySession, getCmlKey, decryptGhlUserData } from "./auth.mjs";
-import { kvGet, kvSet, getTenantByLocation } from "./db.mjs";
+import { kvGet, kvSet, getTenantByLocation, listTenants } from "./db.mjs";
 const DELAY = Number(process.env.MIRROR_DELAY_MS ?? 140); // simulates a remote Supabase round-trip (measured ~140 ms)
 // Module "Khách hàng" (demo 123 GYM, dữ liệu thật của 1 khách KHÁC hẳn mọi tenant Center Management) — cố
 // tình KHÔNG deploy lên bản thật (data/ bị .gitignore hoàn toàn, không đưa PII lên git). File này chỉ tồn
@@ -161,9 +161,19 @@ http.createServer(async (req, res) => {
       let payload;
       try { payload = decryptGhlUserData(input.encryptedData); }
       catch (e) { return json(res, { error: "Không xác thực được dữ liệu từ GHL: " + e.message }, 400); }
-      const locationId = payload.activeLocation;
-      if (!locationId) return json(res, { error: "Không xác định được trung tâm (location) từ dữ liệu GHL" }, 400);
-      const tenant = await getTenantByLocation(locationId);
+      // GHL chỉ gửi `activeLocation` khi trang được mở từ NGỮ CẢNH SUB-ACCOUNT; mở từ giao diện agency thì
+      // payload không có trường này (xác nhận theo tài liệu GHL "user context"). Khi đó chỉ tự chọn trung tâm
+      // nếu email này là nhân viên của ĐÚNG 1 trung tâm (không yếu hơn bản 1-khách cũ vốn chỉ tra theo email);
+      // thuộc nhiều trung tâm thì không đoán — báo rõ để mở lại từ trong sub-account cần dùng.
+      let locationId = payload.activeLocation;
+      let tenant = locationId ? await getTenantByLocation(locationId) : null;
+      if (!locationId) {
+        const matches = [];
+        for (const t0 of await listTenants()) if (await findStaff(t0.schema_name, payload.email)) matches.push(t0);
+        if (matches.length === 1) { tenant = await getTenantByLocation(matches[0].location_id); locationId = tenant.location_id; }
+        else if (matches.length > 1) return json(res, { error: "Tài khoản này thuộc nhiều trung tâm — hãy mở app từ bên trong sub-account của trung tâm cần dùng." }, 400);
+        else { console.error("[sso-verify] payload không có activeLocation, keys:", Object.keys(payload).join(",")); return json(res, { error: "Không xác định được trung tâm từ dữ liệu GHL — hãy mở app từ bên trong sub-account." }, 400); }
+      }
       if (!tenant) return json(res, { error: "Trung tâm này chưa được cấp phép sử dụng hệ thống. Liên hệ quản trị để được thêm vào." }, 403);
       const row = await findStaff(tenant.schema_name, payload.email);
       if (!row) return json(res, { error: "Tài khoản chưa được cấp quyền truy cập. Liên hệ quản lý để được thêm vào danh sách nhân viên." }, 403);

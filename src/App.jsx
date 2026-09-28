@@ -1549,6 +1549,7 @@ const DEFAULT_BRAND = { brandName: "…", brandMark: "··", orgLabel: "…", me
 export default function App() {
   const [me, setMe] = useState(undefined); // undefined = đang tải, null = chưa đăng nhập, object = đã đăng nhập
   const [brand, setBrand] = useState(DEFAULT_BRAND);
+  const [ssoError, setSsoError] = useState("");
   useEffect(() => { get("/api/branding").then((b) => { if (b && b.brandName) { setBrand(b); document.title = `${b.brandName} · Vận hành`; } }); }, []);
   useEffect(() => {
     (async () => {
@@ -1557,10 +1558,10 @@ export default function App() {
       // postMessage — GHL sinh gói dữ liệu MỚI mỗi lần, gửi lên server tự giải mã, không đi qua URL nên
       // không có chuyện "chép URL cũ dùng lại" như Tầng 1. Bỏ qua bước này nếu đã có token (đăng nhập rồi)
       // hoặc không nằm trong iframe nào (postMessage tới chính mình không bao giờ có ai trả lời, timeout).
-      if (!localStorage.getItem(TOKEN_KEY) && window.parent !== window) {
+      const ssoLogin = async () => {
         try {
           const encryptedData = await new Promise((resolve, reject) => {
-            const t = setTimeout(() => reject(new Error("timeout")), 3000);
+            const t = setTimeout(() => reject(new Error("GHL không phản hồi")), 3000);
             const onMsg = ({ data }) => {
               if (data && data.message === "REQUEST_USER_DATA_RESPONSE") {
                 clearTimeout(t); window.removeEventListener("message", onMsg); resolve(data.payload);
@@ -1571,14 +1572,26 @@ export default function App() {
           });
           const r = await fetch("/api/candy/sso-verify", { method: "POST", body: JSON.stringify({ encryptedData }) });
           const j = await r.json();
-          if (r.ok && j.token) localStorage.setItem(TOKEN_KEY, j.token);
-        } catch { /* không lấy được (không nằm trong GHL, hoặc GHL chưa phản hồi kịp) — thử Tầng 1/token cũ nếu có */ }
+          if (r.ok && j.token) { localStorage.setItem(TOKEN_KEY, j.token); return ""; }
+          return j.error || "Đăng nhập qua GHL thất bại";
+        } catch (e) { return e.message || "Không lấy được dữ liệu từ GHL"; /* không nằm trong GHL, hoặc GHL chưa phản hồi kịp */ }
+      };
+      const inFrame = window.parent !== window;
+      // Bug thật (bắt được sau đợt multi-tenant): trước đây chỉ thử SSO khi CHƯA có token nào trong localStorage.
+      // Token cũ (đã bị server xoá/không còn hợp lệ — ví dụ phiên tạo trước khi đổi chỗ lưu session) vẫn nằm đó,
+      // nên SSO không bao giờ chạy lại và người dùng kẹt ở "Chưa đăng nhập" dù đang là admin. Giờ: có token thì
+      // kiểm tra trước, server từ chối thì xoá token đó đi rồi thử SSO lại như chưa từng đăng nhập.
+      let ssoError = "";
+      if (localStorage.getItem(TOKEN_KEY)) {
+        const check = await get("/api/candy/me").catch(() => null);
+        if (!(check && check.email)) localStorage.removeItem(TOKEN_KEY);
       }
+      if (!localStorage.getItem(TOKEN_KEY) && inFrame) ssoError = await ssoLogin();
       // Đợt multi-tenant: lần gọi /api/branding lúc mount (trên) chạy TRƯỚC khi biết token của Tầng 2 (vừa
       // set ở trên, nếu có) nên chỉ thấy được thương hiệu chung chung. Gọi lại 1 lần nữa ở đây — giờ đã có
       // token (Tầng 1 lẫn Tầng 2 đều xong) — để đổi sang đúng tên/logo của trung tâm vừa đăng nhập vào.
       get("/api/branding").then((b) => { if (b && b.brandName) { setBrand(b); document.title = `${b.brandName} · Vận hành`; } });
-      get("/api/candy/me").then((d) => setMe(d && d.email ? d : null));
+      get("/api/candy/me").then((d) => { setSsoError(ssoError); setMe(d && d.email ? d : null); });
     })();
   }, []);
   const logout = async () => { await fetch("/api/candy/logout", { method: "POST" }); localStorage.removeItem(TOKEN_KEY); setMe(null); };
@@ -1630,7 +1643,7 @@ export default function App() {
     ...(me?.role === "admin" ? [{ key: "cau-hinh", href: "#/cau-hinh", label: "Cấu hình" }] : []),
   ];
   if (me === undefined) return <p className="muted" style={{ padding: 40 }}>Đang tải…</p>;
-  if (me === null) return <AccessGate brand={brand} msg={`Vui lòng vào GHL và bấm menu "${brand.menuLabel}" để truy cập.`} />;
+  if (me === null) return <AccessGate brand={brand} msg={ssoError || `Vui lòng vào GHL và bấm menu "${brand.menuLabel}" để truy cập.`} />;
   return (
     <div className="shell">
       <header className="topbar">
